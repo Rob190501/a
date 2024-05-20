@@ -2,10 +2,12 @@ package Controller;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 
@@ -33,6 +35,12 @@ public class UploadGame extends HttpServlet {
 	
 	DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 	LocalDateTime now = LocalDateTime.now();
+	
+	// Magic numbers for JPEG, PNG, and GIF
+    private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
+    private static final byte[] PNG_MAGIC = {(byte) 0x89, (byte) 0x50, (byte) 0x4E, (byte) 0x47, (byte) 0x0D, (byte) 0x0A, (byte) 0x1A, (byte) 0x0A};
+    private static final byte[] GIF_MAGIC = {(byte) 0x47, (byte) 0x49, (byte) 0x46, (byte) 0x38};
+
 	
 	
     public UploadGame() {
@@ -67,20 +75,23 @@ public class UploadGame extends HttpServlet {
 		 */
 		String fileName= null;
 		String message = "upload =\n";
+		
 		if (request.getParts() != null && request.getParts().size() > 0) {
-			for (Part part : request.getParts()) {
-				fileName = extractFileName(part);
-			
-				if (fileName != null && !fileName.equals("")) {
-					part.write(savePath + File.separator + fileName);
-					g1.setImg(fileName);
-					
-					message = message + fileName + "\n";
-				} else {
-					request.setAttribute("error", "Errore: Bisogna selezionare almeno un file");
-				}
-			}
-		}
+            for (Part part : request.getParts()) {
+                if (isValidImage(part)) {
+                    fileName = getSubmittedFileName(part);
+                    if (fileName != null && !fileName.equals("")) {
+                        part.write(savePath + File.separator + fileName);
+                        g1.setImg(fileName);
+                        message = message + fileName + "\n";
+                    } else {
+                        request.setAttribute("error", "Errore: Bisogna selezionare almeno un file immagine valido (jpeg, png, gif)");
+                    }
+                } else {
+                    request.setAttribute("error", "Errore: Bisogna selezionare almeno un file immagine valido (jpeg, png, gif)");
+                }
+            }
+        }
 		
 		g1.setName(request.getParameter("nomeGame"));
 		g1.setYears(request.getParameter("years"));
@@ -105,17 +116,39 @@ public class UploadGame extends HttpServlet {
 		RequestDispatcher dispatcher = getServletContext().getRequestDispatcher("/gameList?page=admin&sort=added DESC");
 		dispatcher.forward(request, response);
 	}
-	private String extractFileName(Part part) {
-		// content-disposition: form-data; name="file"; filename="file.txt"
-		String contentDisp = part.getHeader("content-disposition");
-		String[] items = contentDisp.split(";");
-		for (String s : items) {
-			if (s.trim().startsWith("filename")) {
-				return s.substring(s.indexOf("=") + 2, s.length() - 1);
-			}
-		}
-		return "";
-	}
+	
+	private boolean isValidImage(Part part) throws IOException {
+        try (InputStream is = part.getInputStream()) {
+            byte[] header = new byte[8];
+            if (is.read(header) != 8) {
+                return false;
+            }
+            return isJPEG(header) || isPNG(header) || isGIF(header);
+        }
+    }
+
+    private boolean isJPEG(byte[] header) {
+        return header.length >= 3 && header[0] == (byte) 0xFF && header[1] == (byte) 0xD8 && header[2] == (byte) 0xFF;
+    }
+
+    private boolean isPNG(byte[] header) {
+        return header.length >= 8 && Arrays.equals(Arrays.copyOf(header, 8), PNG_MAGIC);
+    }
+
+    private boolean isGIF(byte[] header) {
+        return header.length >= 4 && Arrays.equals(Arrays.copyOf(header, 4), GIF_MAGIC);
+    }
+
+    private String getSubmittedFileName(Part part) {
+        String contentDisp = part.getHeader("content-disposition");
+        String[] items = contentDisp.split(";");
+        for (String s : items) {
+            if (s.trim().startsWith("filename")) {
+                return s.substring(s.indexOf("=") + 2, s.length() - 1);
+            }
+        }
+        return "";
+    }
 	
 
 }
